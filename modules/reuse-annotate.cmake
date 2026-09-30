@@ -44,9 +44,16 @@ function(add_reuse_header_target)
             set(_comment "Adding REUSE license headers")
         endif ()
 
+        # Determine null device for output redirection (cross-platform)
+        if(WIN32)
+            set(_null_device "NUL")
+        else()
+            set(_null_device "/dev/null")
+        endif()
+
         add_custom_target(${_headers_target}
                 COMMAND
-                ${REUSE_EXECUTABLE} annotate --license ${ARG_LICENSE} --copyright "${ARG_USERS}" ${ARG_FLAGS} ${ARG_FILES}
+                ${REUSE_EXECUTABLE} annotate --license ${ARG_LICENSE} --copyright "${ARG_USERS}" --skip-existing ${ARG_FLAGS} ${ARG_FILES} > ${_null_device} 2>&1
                 WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
                 COMMENT "${_comment}"
                 VERBATIM
