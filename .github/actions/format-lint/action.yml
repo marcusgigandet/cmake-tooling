@@ -1,0 +1,54 @@
+name: 'clang-format lint'
+description: >-
+  Checks the formatting of clang-format-compatible languages.
+
+inputs:
+  clang-format-version:
+    description: >-
+      Pinned clang-format version to install, so results stay stable across
+      runner images.
+    required: false
+    default: '22'
+  globs:
+    description: >-
+      Newline-separated git pathspec globs selecting the files to check.
+      Globs must not contain spaces.
+    required: false
+    default: |
+      :(glob)**/*.[ch]
+      :(glob)**/*.[ch]pp
+      :(glob)**/*.cc
+      :(glob)**/*.hh
+      :(glob)**/*.[chi]xx
+      :(glob)**/*.cppm
+
+outputs:
+  skipped:
+    description: "'true' when no files matched the globs."
+    value: ${{ steps.sources.outputs.skipped }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install clang-format
+      shell: bash
+      run: pipx install "clang-format==${{ inputs.clang-format-version }}"
+
+    - name: Find formattable sources
+      id: sources
+      shell: bash
+      env:
+        GLOBS: ${{ inputs.globs }}
+      run: |
+        git ls-files -- ${GLOBS} > "${RUNNER_TEMP}/sources.txt"
+        if [ -s "${RUNNER_TEMP}/sources.txt" ]; then
+          echo "Checking $(wc -l < "${RUNNER_TEMP}/sources.txt") files."
+        else
+          echo "skipped=true" >> "$GITHUB_OUTPUT"
+          echo "No formattable sources found, skipping clang-format."
+        fi
+
+    - name: Check formatting
+      if: steps.sources.outputs.skipped != 'true'
+      shell: bash
+      run: xargs -a "${RUNNER_TEMP}/sources.txt" clang-format --dry-run --Werror
