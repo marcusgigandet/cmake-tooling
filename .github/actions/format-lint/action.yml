@@ -8,7 +8,7 @@ inputs:
       Pinned clang-format version to install, so results stay stable across
       runner images.
     required: false
-    default: '22'
+    default: '23.1.2'
   globs:
     description: >-
       Newline-separated git pathspec globs selecting the files to check.
