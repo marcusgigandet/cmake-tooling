@@ -25,6 +25,8 @@ endif ()
 | Module                         | Function                    | Description                                                                           |
 | ------------------------------ | --------------------------- | ------------------------------------------------------------------------------------- |
 | `modules/clang-format.cmake`   | `add_code_format_target()`  | Adds a `clang-format` target as a dependency of the given target.                     |
+| `modules/clang-tidy.cmake`     | `add_clang_tidy_target()`   | Adds an on-demand `clang-tidy` analysis target for the given files.                  |
+| `modules/compile-commands.cmake` | `add_compile_commands_copy_target()` | Copies `compile_commands.json` to the project root on every build.       |
 | `modules/reuse-lint.cmake`     | `add_reuse_lint_target()`   | Adds a [REUSE](https://reuse.software) lint target to verify SPDX license compliance. |
 | `modules/reuse-annotate.cmake` | `add_reuse_header_target()` | Adds a target that annotates files with REUSE-compliant SPDX license headers.         |
 
