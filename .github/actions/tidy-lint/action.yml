@@ -9,7 +9,7 @@ inputs:
       Pinned clang-tidy version to install, so results stay stable across
       runner images.
     required: false
-    default: '23.1.2'
+    default: '22.1.8'
   build-directory:
     description: >-
       Directory holding the compile_commands.json created by configuring the
