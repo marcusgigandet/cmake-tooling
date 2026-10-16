@@ -1,0 +1,121 @@
+name: 'clang-tidy lint'
+description: >-
+  Runs clang-tidy on the selected sources against a CMake compilation database
+  and fails the check on any finding.
+
+inputs:
+  clang-tidy-version:
+    description: >-
+      Pinned clang-tidy version to install, so results stay stable across
+      runner images.
+    required: false
+    default: '23.1.2'
+  build-directory:
+    description: >-
+      Directory holding the compile_commands.json created by configuring the
+      project with CMAKE_EXPORT_COMPILE_COMMANDS=ON.
+    required: false
+    default: 'build'
+  globs:
+    description: >-
+      Newline-separated git pathspec globs selecting the files to check.
+      Only files with a matching entry in the compilation database are
+      analyzed. Globs must not contain spaces.
+    required: false
+    default: |
+      :(glob)**/*.c
+      :(glob)**/*.cc
+      :(glob)**/*.cpp
+      :(glob)**/*.cppm
+      :(glob)**/*.cxx
+  checks:
+    description: >-
+      Optional. Comma-separated clang-tidy checks overriding any .clang-tidy
+      configuration (e.g. "modernize-*,-modernize-use-trailing-return-type").
+    required: false
+    default: ''
+  header-filter:
+    description: >-
+      Optional. Regular expression for clang-tidy's --header-filter.
+    required: false
+    default: ''
+  warnings-as-errors:
+    description: >-
+      Comma-separated clang-tidy warnings treated as errors, so the check
+      fails on them. Empty disables the gate, '*' fails on every finding.
+    required: false
+    default: '*'
+
+outputs:
+  skipped:
+    description: "'true' when no files matched the globs."
+    value: ${{ steps.sources.outputs.skipped }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install clang-tidy
+      shell: bash
+      run: pipx install "clang-tidy==${{ inputs.clang-tidy-version }}"
+
+    - name: Find analyzable sources
+      id: sources
+      shell: bash
+      env:
+        GLOBS: ${{ inputs.globs }}
+      run: |
+        git ls-files -- ${GLOBS} > "${RUNNER_TEMP}/sources.txt"
+        if [ -s "${RUNNER_TEMP}/sources.txt" ]; then
+          echo "Selected $(wc -l < "${RUNNER_TEMP}/sources.txt") files."
+        else
+          echo "skipped=true" >> "$GITHUB_OUTPUT"
+          echo "No analyzable sources found, skipping clang-tidy."
+        fi
+
+    - name: Check with clang-tidy
+      if: steps.sources.outputs.skipped != 'true'
+      shell: bash
+      # Run from the build directory so that response files referenced by
+      # the compile database resolve, mirroring the clang-tidy CMake module.
+      working-directory: ${{ inputs.build-directory }}
+      env:
+        BUILD_DIR: ${{ inputs.build-directory }}
+        CHECKS: ${{ inputs.checks }}
+        HEADER_FILTER: ${{ inputs.header-filter }}
+        WARNINGS_AS_ERRORS: ${{ inputs.warnings-as-errors }}
+      run: |
+        compile_db="${BUILD_DIR}/compile_commands.json"
+        if [ ! -f "${compile_db}" ]; then
+          echo "::error::No compilation database found at ${compile_db}."
+          echo "::error::Configure the project with CMAKE_EXPORT_COMPILE_COMMANDS=ON and pass its build directory via the build-directory input."
+          exit 1
+        fi
+
+        # Compilation database entries as absolute paths.
+        jq -r '.[] | .file as $file
+               | if ($file | startswith("/")) then $file
+                 else (.directory + "/" + $file) end' "${compile_db}" \
+          | while IFS= read -r path; do realpath -m "${path}"; done \
+          | sort -u > "${RUNNER_TEMP}/database.txt"
+
+        while IFS= read -r path; do realpath -m "${GITHUB_WORKSPACE}/${path}"; done \
+          < "${RUNNER_TEMP}/sources.txt" | sort -u > "${RUNNER_TEMP}/selected.txt"
+
+        # Only files with a matching entry in the database can be analyzed.
+        comm -12 "${RUNNER_TEMP}/selected.txt" "${RUNNER_TEMP}/database.txt" \
+          > "${RUNNER_TEMP}/tidy.txt"
+        while IFS= read -r path; do
+          echo "::warning file=${path}::Not found in the compilation database, skipping clang-tidy analysis."
+        done < <(comm -23 "${RUNNER_TEMP}/selected.txt" "${RUNNER_TEMP}/database.txt")
+
+        if [ ! -s "${RUNNER_TEMP}/tidy.txt" ]; then
+          echo "No selected sources in the compilation database, nothing to analyze."
+          exit 0
+        fi
+
+        args=(-quiet -p "${BUILD_DIR}")
+        if [ -n "${CHECKS}" ]; then args+=("-checks=${CHECKS}"); fi
+        if [ -n "${HEADER_FILTER}" ]; then args+=("-header-filter=${HEADER_FILTER}"); fi
+        if [ -n "${WARNINGS_AS_ERRORS}" ]; then args+=("-warnings-as-errors=${WARNINGS_AS_ERRORS}"); fi
+
+        xargs -r -a "${RUNNER_TEMP}/tidy.txt" clang-tidy "${args[@]}"
