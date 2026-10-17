@@ -84,7 +84,7 @@ runs:
         HEADER_FILTER: ${{ inputs.header-filter }}
         WARNINGS_AS_ERRORS: ${{ inputs.warnings-as-errors }}
       run: |
-        compile_db="${BUILD_DIR}/compile_commands.json"
+        compile_db="${GITHUB_WORKSPACE}/${BUILD_DIR}/compile_commands.json"
         if [ ! -f "${compile_db}" ]; then
           echo "::error::No compilation database found at ${compile_db}."
           echo "::error::Configure the project with CMAKE_EXPORT_COMPILE_COMMANDS=ON and pass its build directory via the build-directory input."
@@ -113,7 +113,7 @@ runs:
           exit 0
         fi
 
-        args=(-quiet -p "${BUILD_DIR}")
+        args=(-quiet -p "${GITHUB_WORKSPACE}/${BUILD_DIR}")
         if [ -n "${CHECKS}" ]; then args+=("-checks=${CHECKS}"); fi
         if [ -n "${HEADER_FILTER}" ]; then args+=("-header-filter=${HEADER_FILTER}"); fi
         if [ -n "${WARNINGS_AS_ERRORS}" ]; then args+=("-warnings-as-errors=${WARNINGS_AS_ERRORS}"); fi
