@@ -1,4 +1,5 @@
-include_guard()
+include_guard(GLOBAL)
+include("${CMAKE_CURRENT_LIST_DIR}/tooling-common.cmake")
 
 #[[
 Adds a custom target for clang-tidy analysis on the provided files.
@@ -26,15 +27,26 @@ function(add_clang_tidy_target)
     set(multiValueArgs FILES CHECKS)
     cmake_parse_arguments(ARG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
+    if (NOT ARG_TARGET OR NOT TARGET "${ARG_TARGET}" OR NOT ARG_FILES OR ARG_UNPARSED_ARGUMENTS OR ARG_KEYWORDS_MISSING_VALUES)
+        message(FATAL_ERROR "add_clang_tidy_target requires an existing TARGET and FILES")
+    endif ()
+
+    _cmake_tooling_find(CLANG_TIDY_EXECUTABLE clang-tidy)
+    if (NOT CLANG_TIDY_EXECUTABLE)
+        return()
+    endif ()
+
     if (NOT CMAKE_EXPORT_COMPILE_COMMANDS)
         message(FATAL_ERROR
                 "add_clang_tidy_target requires CMAKE_EXPORT_COMPILE_COMMANDS to be enabled."
         )
     endif ()
 
-    find_program(CLANG_TIDY_EXECUTABLE clang-tidy REQUIRED)
-
     set(_clang_tidy_args -p ${CMAKE_BINARY_DIR})
+
+    if (CMAKE_TOOLING_STRICT)
+        list(APPEND _clang_tidy_args "--warnings-as-errors=*")
+    endif ()
 
     if (ARG_CHECKS)
         list(JOIN ARG_CHECKS "," _checks)
@@ -49,13 +61,14 @@ function(add_clang_tidy_target)
     # compile database resolve.
     add_custom_target(${ARG_TARGET}-clang-tidy
             COMMAND
-            ${CLANG_TIDY_EXECUTABLE}
+            "${CLANG_TIDY_EXECUTABLE}"
             ${_clang_tidy_args}
             ${ARG_FILES}
-            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+            WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
             COMMENT "Running clang-tidy for ${ARG_TARGET}"
             VERBATIM
     )
 
     add_dependencies(${ARG_TARGET}-clang-tidy ${ARG_TARGET})
+    _cmake_tooling_register(check ${ARG_TARGET}-clang-tidy)
 endfunction()

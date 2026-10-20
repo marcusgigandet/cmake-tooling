@@ -1,4 +1,4 @@
-include_guard()
+include_guard(GLOBAL)
 
 #[[
 Adds a custom target that copies compile_commands.json from the build
