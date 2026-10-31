@@ -4,11 +4,12 @@ include("${CMAKE_CURRENT_LIST_DIR}/tooling-common.cmake")
 #[[
 Adds a custom target for clang-tidy analysis on the provided files.
 
-The analysis target is standalone (it is not attached to ALL) so it can be
-run on demand:
+By default the analysis target is standalone and can be run on demand:
   cmake --build <build-dir> --target <TARGET>-clang-tidy
 It depends on the given TARGET so compilation artifacts such as module
 interface BMIs exist before the analysis runs.
+With ON_BUILD, analysis runs after source preparation and before compilation
+instead, and is required by the named target on every build.
 
 clang-tidy uses the compile database, so CMAKE_EXPORT_COMPILE_COMMANDS must
 be enabled and every file passed to FILES must have a matching entry in it.
@@ -20,9 +21,11 @@ Arguments:
   CHECKS       - Optional. Comma-separated clang-tidy checks overriding any
                  .clang-tidy configuration (e.g. "modernize-*,-modernize-use-trailing-return-type").
   HEADER_FILTER - Optional. Regular expression for clang-tidy's --header-filter.
+  ON_BUILD     - Opt in to analysis before compilation; requires clang-tidy.
+                 Leave omitted when analysis needs compilation artifacts such as BMIs.
 ]]
 function(add_clang_tidy_target)
-    set(options "")
+    set(options "ON_BUILD")
     set(oneValueArgs TARGET HEADER_FILTER)
     set(multiValueArgs FILES CHECKS)
     cmake_parse_arguments(ARG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
@@ -31,7 +34,11 @@ function(add_clang_tidy_target)
         message(FATAL_ERROR "add_clang_tidy_target requires an existing TARGET and FILES")
     endif ()
 
-    _cmake_tooling_find(CLANG_TIDY_EXECUTABLE clang-tidy)
+    if (ARG_ON_BUILD)
+        _cmake_tooling_find(CLANG_TIDY_EXECUTABLE clang-tidy REQUIRED)
+    else ()
+        _cmake_tooling_find(CLANG_TIDY_EXECUTABLE clang-tidy)
+    endif ()
     if (NOT CLANG_TIDY_EXECUTABLE)
         return()
     endif ()
@@ -69,6 +76,11 @@ function(add_clang_tidy_target)
             VERBATIM
     )
 
-    add_dependencies(${ARG_TARGET}-clang-tidy ${ARG_TARGET})
+    if (ARG_ON_BUILD)
+        _cmake_tooling_add_build_dependency("${ARG_TARGET}" "${ARG_TARGET}-clang-tidy" analyze
+                FILES ${ARG_FILES})
+    else ()
+        add_dependencies(${ARG_TARGET}-clang-tidy ${ARG_TARGET})
+    endif ()
     _cmake_tooling_register(check ${ARG_TARGET}-clang-tidy)
 endfunction()

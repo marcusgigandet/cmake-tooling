@@ -1,0 +1,20 @@
+# Update the build dependency only when prepared source content changes.
+if (NOT DEFINED CMAKE_TOOLING_PREPARATION_FILE_LIST OR NOT DEFINED CMAKE_TOOLING_PREPARATION_STAMP)
+    message(FATAL_ERROR "Source preparation requires a file list and stamp path")
+endif ()
+
+include("${CMAKE_TOOLING_PREPARATION_FILE_LIST}")
+set(_source_hashes "")
+foreach (_source IN LISTS CMAKE_TOOLING_PREPARATION_FILES)
+    file(SHA256 "${_source}" _source_hash)
+    string(APPEND _source_hashes "${_source}:${_source_hash}\n")
+endforeach ()
+string(SHA256 _fingerprint "${_source_hashes}")
+
+set(_previous "")
+if (EXISTS "${CMAKE_TOOLING_PREPARATION_STAMP}")
+    file(READ "${CMAKE_TOOLING_PREPARATION_STAMP}" _previous)
+endif ()
+if (NOT "${_previous}" STREQUAL "${_fingerprint}\n")
+    file(WRITE "${CMAKE_TOOLING_PREPARATION_STAMP}" "${_fingerprint}\n")
+endif ()

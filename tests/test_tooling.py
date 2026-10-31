@@ -38,13 +38,23 @@ if (TEST_MISSING_TOOLS)
         set(${{output}} "${{output}}-NOTFOUND" PARENT_SCOPE)
     endfunction()
 endif ()
-add_code_format_target(TARGET app FILES "file with spaces.cpp")
-add_clang_tidy_target(TARGET app FILES "${{CMAKE_CURRENT_SOURCE_DIR}}/file with spaces.cpp")
+set(build_args)
+if (TEST_ON_BUILD)
+    list(APPEND build_args ON_BUILD DEPENDENCY_TARGETS consumer)
+endif ()
+add_code_format_target(TARGET app ${{build_args}} FILES "file with spaces.cpp")
+set(tidy_args)
+if (TEST_TIDY_ON_BUILD)
+    list(APPEND tidy_args ON_BUILD)
+endif ()
+add_clang_tidy_target(TARGET app ${{tidy_args}}
+    FILES "${{CMAKE_CURRENT_SOURCE_DIR}}/file with spaces.cpp")
 add_reuse_lint_target(TARGET app)
 add_reuse_header_target(TARGET app LICENSE MIT USERS "First Author" "Second Author"
-    FILES "file with spaces.cpp" FLAGS --year 2026)
+    ${{build_args}} FILES "file with spaces.cpp" FLAGS --year 2026)
 add_cmake_format_target(TARGET app FILES CMakeLists.txt)
 add_cmake_lint_target(TARGET app FILES CMakeLists.txt)
+add_custom_target(consumer)
 ''')
             env = dict(os.environ, TOOL_LOG=str(log))
 
@@ -91,7 +101,58 @@ add_cmake_lint_target(TARGET app FILES CMakeLists.txt)
             self.assertNotIn("tooling-check:", run("cmake", "--build", str(missing),
                                                     "--target", "help"))
             run(*args, "-DCMAKE_TOOLING_STRICT=ON", success=False)
+            # ON_BUILD requires its tool even with strict mode disabled.
+            run(*args, "-DCMAKE_TOOLING_STRICT=OFF", "-DTEST_ON_BUILD=ON", success=False)
+            missing_tidy = run(*args, "-DCMAKE_TOOLING_STRICT=OFF", "-DTEST_ON_BUILD=OFF",
+                               "-DTEST_TIDY_ON_BUILD=ON", success=False)
+            self.assertIn("Required tooling executable not found: clang-tidy", missing_tidy)
             self.assertEqual((source / "file with spaces.cpp").read_text(), "// untouched\n")
+
+            # Only opted-in tools run on builds. Consumers may be declared later.
+            enabled = root / "enabled"
+            run("cmake", "-S", str(source), "-B", str(enabled), "-G", "Ninja",
+                "-DTEST_ON_BUILD=ON", *definitions)
+            log.unlink(missing_ok=True)
+            run("cmake", "--build", str(enabled))
+            calls = [json.loads(line) for line in log.read_text().splitlines()]
+            self.assertEqual(len(calls), 2)
+            self.assertEqual(calls[0][0], "annotate")
+            self.assertEqual(calls[1], ["-i", "file with spaces.cpp"])
+            stamp = enabled / "cmake-tooling/source-preparation.stamp"
+            stamp_time = stamp.stat().st_mtime_ns
+            for target in (None, "app", "consumer"):
+                log.unlink()
+                target_args = ("--target", target) if target else ()
+                run("cmake", "--build", str(enabled), *target_args)
+                calls = [json.loads(line) for line in log.read_text().splitlines()]
+                self.assertEqual(len(calls), 2)
+                self.assertEqual(calls[0][0], "annotate")
+                self.assertEqual(calls[1][0], "-i")
+                self.assertEqual(stamp.stat().st_mtime_ns, stamp_time)
+            run("cmake", "--build", str(enabled), success=False, extra_env={"TOOL_EXIT": "1"})
+            run("cmake", "--build", str(enabled), "--target", "clean")
+            self.assertEqual((source / "file with spaces.cpp").read_text(), "// untouched\n")
+
+            # Tidy can run on every build, alone or after the mutating tools. Explicit
+            # target builds must also run it, with no target/analysis dependency cycle.
+            for prepare in (False, True):
+                tidy_build = root / ("tidy-and-preparation" if prepare else "tidy-only")
+                run("cmake", "-S", str(source), "-B", str(tidy_build), "-G", "Ninja",
+                    "-DTEST_TIDY_ON_BUILD=ON", f"-DTEST_ON_BUILD={'ON' if prepare else 'OFF'}",
+                    *definitions)
+                for target in (None, "app"):
+                    log.unlink(missing_ok=True)
+                    target_args = ("--target", target) if target else ()
+                    run("cmake", "--build", str(tidy_build), *target_args, "--parallel", "8")
+                    calls = [json.loads(line) for line in log.read_text().splitlines()]
+                    self.assertEqual(len(calls), 3 if prepare else 1)
+                    if prepare:
+                        self.assertEqual(calls[0][0], "annotate")
+                        self.assertEqual(calls[1], ["-i", "file with spaces.cpp"])
+                    self.assertEqual(calls[-1], ["-p", str(tidy_build),
+                                                str(source / "file with spaces.cpp")])
+                run("cmake", "--build", str(tidy_build), "--target", "app",
+                    success=False, extra_env={"TOOL_EXIT": "1"})
 
 
 if __name__ == "__main__":
