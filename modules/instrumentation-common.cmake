@@ -1,0 +1,56 @@
+include_guard(GLOBAL)
+include(CheckSourceCompiles)
+include(CMakePushCheckState)
+
+# Instrument only real, locally built C/C++ targets. Runtime link options must
+# reach consumers of instrumented libraries, but compile options stay private.
+function(_cmake_tooling_instrumentation_target target)
+    if (NOT TARGET "${target}")
+        message(FATAL_ERROR "Instrumentation requires an existing target: ${target}")
+    endif ()
+    get_target_property(_alias "${target}" ALIASED_TARGET)
+    get_target_property(_imported "${target}" IMPORTED)
+    get_target_property(_type "${target}" TYPE)
+    set(_built_types EXECUTABLE STATIC_LIBRARY SHARED_LIBRARY MODULE_LIBRARY OBJECT_LIBRARY)
+    if (_alias OR _imported OR NOT _type IN_LIST _built_types)
+        message(FATAL_ERROR "Instrumentation requires a locally built executable or library: ${target}")
+    endif ()
+endfunction()
+
+function(_cmake_tooling_instrumentation_languages output)
+    get_property(_languages GLOBAL PROPERTY ENABLED_LANGUAGES)
+    list(FILTER _languages INCLUDE REGEX "^(C|CXX)$")
+    if (NOT _languages)
+        message(FATAL_ERROR "Instrumentation requires C or CXX to be enabled")
+    endif ()
+    foreach(_language IN LISTS _languages)
+        if (NOT CMAKE_${_language}_COMPILER_ID MATCHES "^(GNU|Clang|AppleClang)$"
+                OR CMAKE_${_language}_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+            message(FATAL_ERROR "Instrumentation requires GCC or Clang with a GNU-style driver (${_language})")
+        endif ()
+    endforeach()
+    set(${output} "${_languages}" PARENT_SCOPE)
+endfunction()
+
+# Check compilation AND executable linking so unavailable runtimes fail during
+# configuration, including when the consumer normally try-compiles static libs.
+function(_cmake_tooling_check_instrumentation language compile_options link_options)
+    string(SHA256 _key
+            "${language};${compile_options};${link_options};${CMAKE_${language}_FLAGS};${CMAKE_EXE_LINKER_FLAGS}")
+    cmake_push_check_state(RESET)
+    list(JOIN compile_options " " CMAKE_REQUIRED_FLAGS)
+    set(CMAKE_REQUIRED_LINK_OPTIONS ${link_options})
+    set(CMAKE_TRY_COMPILE_TARGET_TYPE EXECUTABLE)
+    check_source_compiles(${language} "int main(void) { return 0; }" _CMAKE_TOOLING_FLAGS_${_key})
+    cmake_pop_check_state()
+    if (NOT _CMAKE_TOOLING_FLAGS_${_key})
+        message(FATAL_ERROR "Requested instrumentation is unavailable for ${language}: ${compile_options}")
+    endif ()
+endfunction()
+
+function(_cmake_tooling_apply_instrumentation target compile_options link_options)
+    foreach(_option IN LISTS compile_options)
+        target_compile_options("${target}" PRIVATE "$<$<COMPILE_LANGUAGE:C,CXX>:${_option}>")
+    endforeach()
+    target_link_options("${target}" PUBLIC ${link_options})
+endfunction()

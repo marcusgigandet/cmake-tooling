@@ -1,3 +1,5 @@
+cmake_minimum_required(VERSION 3.28.3)
+
 # Update the build dependency only when prepared source content changes.
 if (NOT DEFINED CMAKE_TOOLING_PREPARATION_FILE_LIST OR NOT DEFINED CMAKE_TOOLING_PREPARATION_STAMP)
     message(FATAL_ERROR "Source preparation requires a file list and stamp path")

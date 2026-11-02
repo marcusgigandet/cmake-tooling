@@ -29,9 +29,11 @@ endif ()
 | `modules/compile-commands.cmake` | `add_compile_commands_copy_target()` | Copies `compile_commands.json` after the selected target builds.       |
 | `modules/reuse-lint.cmake`     | `add_reuse_lint_target()`   | Adds a [REUSE](https://reuse.software) lint target to verify SPDX license compliance. |
 | `modules/reuse-annotate.cmake` | `add_reuse_header_target()` | Adds a target that annotates files with REUSE-compliant SPDX license headers.         |
-
 | `modules/cmake-format.cmake` | `add_cmake_format_target()` | Adds CMake format and format-check targets. |
 | `modules/cmake-format.cmake` | `add_cmake_lint_target()` | Adds a CMake lint target. |
+| `modules/sanitizers.cmake` | `enable_target_sanitizers()` | Enables target-scoped ASan, UBSan, or TSan instrumentation. |
+| `modules/coverage.cmake` | `enable_target_coverage()` | Enables target-scoped GCC or Clang coverage instrumentation. |
+| `modules/coverage.cmake` | `add_coverage_target()` | Builds instrumented targets, runs CTest, and generates coverage reports. |
 
 ## Checks and fixes
 
@@ -151,6 +153,103 @@ Only generated stamps are declared as byproducts, so cleaning preserves sources.
 Adding a new module is a matter of dropping a `*.cmake` file into `modules/`;
 it is picked up automatically.
 
+## Sanitizers
+
+Call `enable_target_sanitizers()` after declaring each executable or project
+library you want to instrument. Nothing is enabled just by including the module.
+Use a consumer option to select instrumentation for a separate development build:
+
+```cmake
+option(APP_SANITIZERS "Enable runtime sanitizer checks" OFF)
+if (APP_SANITIZERS)
+    enable_target_sanitizers(TARGET app_library)
+    enable_target_sanitizers(TARGET app_tests)
+endif ()
+```
+
+The default selection is `address undefined`. Override it with
+`SANITIZERS undefined` or `SANITIZERS thread`, for example. AddressSanitizer and
+ThreadSanitizer cannot be combined; use separate build trees for those selections.
+GCC, Clang, and AppleClang with GNU-style drivers are supported for C and C++.
+MSVC and clang-cl are currently unsupported. Configuration checks both compilation
+and executable linking, and fails if the requested sanitizer runtime is unavailable.
+`CMAKE_TOOLING_STRICT` does not suppress errors for explicitly requested instrumentation.
+
+Compile options apply privately to the selected target. Runtime link options
+propagate to consumers so instrumented static/object libraries link correctly.
+Instrument test executables as well as project libraries to check both, and use
+compatible sanitizer selections throughout the linked targets. Vendored libraries
+and unrelated targets receive no instrumentation compile options. UBSan findings
+stop execution and fail CTest. Frame pointers are retained; choose a Debug build
+for useful source locations. Repeating the same selection on a target is harmless;
+requesting a different selection on that target is an error.
+
+```sh
+cmake -S . -B build/sanitized -DAPP_SANITIZERS=ON -DCMAKE_BUILD_TYPE=Debug
+cmake --build build/sanitized
+ctest --test-dir build/sanitized --output-on-failure
+```
+
+## Coverage
+
+`add_coverage_target()` instruments the listed project targets and creates an
+explicit report target. Enable CTest at the top level, include every project
+library you want to measure, and list all executables needed by the selected tests:
+
+```cmake
+enable_testing()
+# Declare app_library, app_tests, and add_test(...) before this registration.
+option(APP_COVERAGE "Enable coverage instrumentation and reporting" OFF)
+if (APP_COVERAGE)
+    add_coverage_target(
+        TARGET coverage
+        TARGETS app_library app_tests
+        EXCLUDE ".*/tests/.*"
+        # TEST_REGEX "^app_"       # Optional CTest test-name filter.
+        # CTEST_ARGS --parallel 2  # Optional additional CTest arguments.
+    )
+endif ()
+```
+
+```sh
+cmake -S . -B build/coverage -DAPP_COVERAGE=ON -DCMAKE_BUILD_TYPE=Debug
+cmake --build build/coverage --target coverage
+```
+
+The report target builds its dependencies, clears old execution counters, runs
+CTest, and writes `coverage/coverage/Debug/index.html` inside the calling binary
+directory. For multi-configuration generators, select the configuration with
+`--config Debug`; reports and LLVM profiles are separated by configuration.
+Failed tests, an empty test selection, and reporting-tool errors fail the target.
+No tests or reporting tools run during the default build or `tooling-check`.
+Instrumentation does apply whenever a registered target is compiled.
+
+Clang/AppleClang use `llvm-profdata` and `llvm-cov`, producing HTML and
+`coverage.lcov`. GCC uses `gcovr` (`python -m pip install gcovr`) and its `gcov`,
+producing HTML and Cobertura `coverage.xml`. Use reporting tools matching the
+compiler version. Override discovery with `LLVM_COV_EXECUTABLE`,
+`LLVM_PROFDATA_EXECUTABLE`, or `GCOVR_EXECUTABLE` cache variables. For GCC, select a
+matching `gcov` on `PATH` or through gcovr's `gcov-executable` configuration.
+Missing report executables skip the entire registration, including instrumentation,
+unless `CMAKE_TOOLING_STRICT=ON`. Unsupported compilers and unavailable compiler
+instrumentation always fail configuration. Mixed GCC/Clang C and C++ compilers
+in the same project are unsupported for coverage.
+
+`SOURCE_DIRECTORY` sets gcovr's source root and the LLVM reporting working
+directory (default: calling source directory).
+`OUTPUT_DIRECTORY` sets the report directory (default: `coverage/<TARGET>` in the
+calling binary directory); the configuration name is appended. Relative source
+and output directories resolve against the calling source and binary directories,
+respectively. `EXCLUDE` adds filename regular expressions to the default exclusions
+for `vendor/` and `_deps/`. For compiler instrumentation without a report target,
+use `enable_target_coverage(TARGET app_library)` on each selected target.
+
+Use a dedicated Debug coverage build tree and run report targets serially, without
+other concurrent test runs. GCC counters live beside object files: each report
+clears all `.gcda` files in the top-level build tree before running its tests.
+LLVM counters are cleared only in that report's output directory. Cross-compiled
+tests require an appropriate CTest emulator/runtime setup.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
@@ -158,5 +257,9 @@ MIT. See [LICENSE](LICENSE).
 ## Testing
 
 Run `python3 -m unittest discover -s tests -v` with CMake and Ninja installed.
-The integration test uses mock executables to check registration, command
-arguments, optional/required tools, failure propagation, and default-build behavior.
+The integration tests use mock executables and real C/C++ consumers to check
+registration, command arguments, optional/required tools, failure propagation,
+default-build behavior, target-scoped instrumentation, and sanitizer failures.
+GCC and Clang tests require their compiler runtimes; real report tests run when
+gcovr or the LLVM reporting tools are available. Multi-configuration LLVM reports
+are exercised in both Debug and Release.
