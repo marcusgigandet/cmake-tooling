@@ -34,10 +34,12 @@ function(add_code_format_target)
     add_custom_target(${ARG_TARGET}-format
             COMMAND "${CLANG_FORMAT_EXECUTABLE}" -i ${ARG_FILES}
             WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+            COMMENT "Formatting sources for ${ARG_TARGET}"
             VERBATIM)
     add_custom_target(${ARG_TARGET}-format-check
             COMMAND "${CLANG_FORMAT_EXECUTABLE}" --dry-run --Werror ${ARG_FILES}
             WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+            COMMENT "Checking source formatting for ${ARG_TARGET}"
             VERBATIM)
     _cmake_tooling_register(fix ${ARG_TARGET}-format)
     _cmake_tooling_register(check ${ARG_TARGET}-format-check)

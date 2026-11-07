@@ -6,6 +6,7 @@ Adds a custom target to add REUSE-compliant license headers to files.
 
 This target creates a custom target that adds SPDX license headers to the
 specified files using the reuse annotate command. Runs explicitly unless ON_BUILD is given.
+Messages about files that already contain REUSE information are suppressed.
 Missing reuse is skipped unless CMAKE_TOOLING_STRICT is enabled.
 
 Arguments:
@@ -63,6 +64,7 @@ function(add_reuse_header_target)
 
         add_custom_target(${_headers_target}
                 COMMAND
+                "${CMAKE_COMMAND}" -P "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../scripts/reuse-annotate.cmake" --
                 "${REUSE_EXECUTABLE}" annotate --license "${ARG_LICENSE}" ${_copyright_args} --skip-existing ${ARG_FLAGS} ${ARG_FILES}
                 WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
                 COMMENT "${_comment}"

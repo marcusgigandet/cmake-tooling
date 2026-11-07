@@ -23,6 +23,11 @@ class ToolingTests(unittest.TestCase):
                 "import json, os, sys\n"
                 "with open(os.environ['TOOL_LOG'], 'a') as f:\n"
                 "    f.write(json.dumps(sys.argv[1:]) + '\\n')\n"
+                "if sys.argv[1] == 'annotate':\n"
+                "    print(\"Skipped file 'first.cpp' already containing REUSE information\")\n"
+                "    print(\"Skipped file 'second.cpp' already containing REUSE information\")\n"
+                "    print('Annotation output retained')\n"
+                "    print('Annotation diagnostic retained', file=sys.stderr)\n"
                 "sys.exit(int(os.environ.get('TOOL_EXIT', '0')))\n"
             )
             mock.chmod(0o755)
@@ -80,7 +85,10 @@ add_custom_target(consumer)
             self.assertTrue(any("--warnings-as-errors=*" in call for call in calls))
             self.assertFalse(any("-i" in call or "annotate" in call for call in calls))
             log.unlink()
-            run("cmake", "--build", str(build), "--target", "tooling-fix")
+            output = run("cmake", "--build", str(build), "--target", "tooling-fix")
+            self.assertNotIn("Skipped file", output)
+            self.assertIn("Annotation output retained", output)
+            self.assertIn("Annotation diagnostic retained", output)
             calls = [json.loads(line) for line in log.read_text().splitlines()]
             self.assertEqual(len(calls), 3)
             self.assertIn(["-i", "file with spaces.cpp"], calls)
@@ -88,7 +96,8 @@ add_custom_target(consumer)
                            "--copyright", "Second Author", "--skip-existing", "--year",
                            "2026", "file with spaces.cpp"], calls)
             for target in ("app-format-check", "app-reuse-lint", "app-clang-tidy",
-                           "app-cmake-format-check", "app-cmake-lint", "tooling-check"):
+                           "app-cmake-format-check", "app-cmake-lint", "tooling-check",
+                           "app-reuse-headers"):
                 run("cmake", "--build", str(build), "--target", target,
                     success=False, extra_env={"TOOL_EXIT": "1"})
 
