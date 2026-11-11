@@ -6,7 +6,7 @@ Adds a custom target to add REUSE-compliant license headers to files.
 
 This target creates a custom target that adds SPDX license headers to the
 specified files using the reuse annotate command. Runs explicitly unless ON_BUILD is given.
-Messages about files that already contain REUSE information are suppressed.
+Standard output is suppressed on success; stderr remains visible.
 Missing reuse is skipped unless CMAKE_TOOLING_STRICT is enabled.
 
 Arguments:

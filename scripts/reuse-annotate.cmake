@@ -7,15 +7,13 @@ foreach (_index RANGE 4 ${_last_arg})
     list(APPEND _command "${CMAKE_ARGV${_index}}")
 endforeach ()
 
-# Keep stderr visible and preserve failure status; filter only skip notices.
+# Keep stderr visible and show captured stdout only when annotation fails.
 execute_process(COMMAND ${_command}
         OUTPUT_VARIABLE _output
         RESULT_VARIABLE _result)
-string(REGEX REPLACE "(^|\n)Skipped file '[^\n]*' already containing REUSE information(\r?\n|$)"
-        "\\1" _output "${_output}")
-if (NOT _output STREQUAL "")
-    execute_process(COMMAND "${CMAKE_COMMAND}" -E echo_append "${_output}")
-endif ()
 if (NOT "${_result}" STREQUAL "0")
+    if (NOT _output STREQUAL "")
+        execute_process(COMMAND "${CMAKE_COMMAND}" -E echo_append "${_output}")
+    endif ()
     message(FATAL_ERROR "REUSE annotation failed: ${_result}")
 endif ()
